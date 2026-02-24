@@ -1,6 +1,6 @@
 pyrogram
 tgcrypto
-flask
-pymongo
+firebase-admin
+cloudinary
 ffmpeg-python
 python-dotenv
