@@ -1,5 +1,5 @@
 __pycache__/
 .env
 firebase.json
-*.mp4
+*.mp4 / .mkv
 *.ass
