@@ -1,28 +1,27 @@
 from pyrogram import Client, filters
-import os
-from config import *
-from ffmpeg import hardsub_video
 
-app = Client("animebot",
-             api_id=API_ID,
-             api_hash=API_HASH,
-             bot_token=BOT_TOKEN)
+from config import BOT_TOKEN
 
-# Video Save
+app = Client(
+    "animebot",
+    bot_token=BOT_TOKEN
+)
+
+# Video Receive
 @app.on_message(filters.video)
-async def save_video(client, message):
+async def video_handler(client, message):
 
     user_id = message.from_user.id
 
-    path = await message.download(
+    await message.download(
         file_name=f"/tmp/{user_id}.mp4"
     )
 
     await message.reply("✅ Video received\nSend subtitle (.ass)")
 
-# Subtitle Save + Process
+# Subtitle Receive
 @app.on_message(filters.document)
-async def save_sub(client, message):
+async def sub_handler(client, message):
 
     if message.document.file_name.endswith(".ass"):
 
@@ -32,12 +31,19 @@ async def save_sub(client, message):
             file_name=f"/tmp/{user_id}.ass"
         )
 
-        await message.reply("✅ Subtitle received\nProcessing HardSub...")
+        await message.reply("✅ Subtitle received\nProcessing...")
 
-        hardsub_video(user_id)
+        import os
+
+        os.system(f"""
+        ffmpeg -i /tmp/{user_id}.mp4
+        -vf ass=/tmp/{user_id}.ass
+        -preset ultrafast -crf 30
+        /tmp/{user_id}_out.mp4
+        """)
 
         await app.send_video(
-            user_id,
+            message.chat.id,
             f"/tmp/{user_id}_out.mp4"
         )
 
