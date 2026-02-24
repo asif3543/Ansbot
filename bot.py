@@ -1,6 +1,7 @@
 from pyrogram import Client, filters
+import os
 
-from config import BOT_TOKEN
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 
 app = Client(
     "animebot",
@@ -13,13 +14,13 @@ async def video_handler(client, message):
 
     user_id = message.from_user.id
 
-    await message.download(
-        file_name=f"/tmp/{user_id}.mp4"
+    video_path = await message.download(
+        file_name=f"{user_id}.mp4"
     )
 
-    await message.reply("✅ Video received\nSend subtitle (.ass)")
+    await message.reply("✅ Video Saved\nSend Subtitle (.ass)")
 
-# Subtitle Receive
+# Subtitle Receive + HardSub
 @app.on_message(filters.document)
 async def sub_handler(client, message):
 
@@ -27,24 +28,22 @@ async def sub_handler(client, message):
 
         user_id = message.from_user.id
 
-        await message.download(
-            file_name=f"/tmp/{user_id}.ass"
+        sub_path = await message.download(
+            file_name=f"{user_id}.ass"
         )
 
-        await message.reply("✅ Subtitle received\nProcessing...")
-
-        import os
+        await message.reply("✅ Subtitle Received\nProcessing...")
 
         os.system(f"""
-        ffmpeg -i /tmp/{user_id}.mp4
-        -vf ass=/tmp/{user_id}.ass
+        ffmpeg -i {user_id}.mp4
+        -vf ass={user_id}.ass
         -preset ultrafast -crf 30
-        /tmp/{user_id}_out.mp4
+        {user_id}_out.mp4
         """)
 
         await app.send_video(
             message.chat.id,
-            f"/tmp/{user_id}_out.mp4"
+            f"{user_id}_out.mp4"
         )
 
 app.run()
