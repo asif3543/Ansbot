@@ -1,5 +1,6 @@
 from pyrogram import Client, filters
 import os
+import asyncio
 
 BOT_TOKEN = "YOUR_BOT_TOKEN"
 
@@ -8,9 +9,13 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# Create folders
+# Folders
 os.makedirs("downloads", exist_ok=True)
 os.makedirs("thumbnails", exist_ok=True)
+
+# Queue Lock
+processing_lock = asyncio.Lock()
+
 
 # =========================
 # Video Receive
@@ -25,6 +30,7 @@ async def video_handler(client, message):
     await message.download(
         file_name=f"downloads/{user_id}.mp4"
     )
+
 
 # =========================
 # Subtitle Receive
@@ -45,10 +51,11 @@ async def sub_handler(client, message):
 
     await message.reply("Now Send /bakk to Process Video 🎬")
 
+
 # =========================
 # Thumbnail Receive
 # =========================
-@app.on_message(filters.photo & filters.command("thumbnail"))
+@app.on_message(filters.command("thumbnail") & filters.photo)
 async def thumbnail_handler(client, message):
 
     user_id = message.from_user.id
@@ -58,6 +65,7 @@ async def thumbnail_handler(client, message):
     )
 
     await message.reply("✅ Thumbnail Saved")
+
 
 # =========================
 # HardSub Processing
@@ -77,36 +85,41 @@ async def bakk(client, message):
     if not os.path.exists(sub_file):
         return await message.reply("❌ Send Subtitle First")
 
-    await message.reply("🎬 Processing HardSub Video...")
+    async with processing_lock:
 
-    # FFmpeg Processing
-    if os.path.exists(thumb_file):
+        await message.reply("🎬 Processing Video... Please Wait")
 
-        os.system(f"""
-        ffmpeg -y -i {video_file}
-        -i {thumb_file}
-        -filter_complex "[0:v][1:v] overlay=W-w-10:10"
-        -vf "ass={sub_file}"
-        -preset ultrafast
-        downloads/{user_id}_out.mp4
-        """)
+        output_file = f"downloads/{user_id}_out.mp4"
 
-    else:
+        if os.path.exists(thumb_file):
 
-        os.system(f"""
-        ffmpeg -y -i {video_file}
-        -vf "ass={sub_file}"
-        -preset ultrafast
-        downloads/{user_id}_out.mp4
-        """)
+            os.system(f"""
+            ffmpeg -y -i {video_file}
+            -i {thumb_file}
+            -filter_complex "[0:v][1:v] overlay=W-w-10:10"
+            -vf "ass={sub_file}"
+            -preset ultrafast
+            {output_file}
+            """)
 
-    # Send Final Video
-    await app.send_video(
-        message.chat.id,
-        f"downloads/{user_id}_out.mp4"
-    )
+        else:
 
-    await message.reply("✅ HardSub Video Ready")
+            os.system(f"""
+            ffmpeg -y -i {video_file}
+            -vf "ass={sub_file}"
+            -preset ultrafast
+            {output_file}
+            """)
 
+        await app.send_video(
+            message.chat.id,
+            output_file
+        )
+
+        await message.reply("✅ HardSub Video Ready")
+
+
+# Start Bot
+app.run()
 # Start Bot
 app.run()
