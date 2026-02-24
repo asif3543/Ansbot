@@ -1,7 +1,7 @@
 from pyrogram import Client, filters
 import os
 
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+BOT_TOKEN = "8732499343:AAF2Zg6qj1gtPZdWfLygzdX3OVgnW6DHlF4"
 
 app = Client(
     "animebot",
