@@ -5,9 +5,9 @@ import asyncio
 # =========================
 # CONFIG
 # =========================
-API_ID = 123456  # apna api_id daalo
-API_HASH = "YOUR_API_HASH"
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+API_ID = 31009110  # apna api_id daalo
+API_HASH = "58d0753e9501e76e3a9b126b84ebbe3f"
+BOT_TOKEN = "8732499343:AAF2Zg6qj1gtPZdWfLygzdX3OVgnW6DHlF4"
 
 app = Client(
     "animebot",
