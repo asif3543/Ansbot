@@ -8,5 +8,4 @@ Features:
 
 Setup:
 1. Add API keys
-2. Add Firebase config
-3. Deploy on Render / Railway
+3. Deploy on Render
