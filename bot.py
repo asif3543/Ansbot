@@ -94,13 +94,12 @@ async def save_photo(client, message):
         img = Image.open(logo_path)
         if img.mode != "RGB":
             img = img.convert("RGB")
-        img.thumbnail((320, 320))
+        img.thumbnail((320, 320))  # EXACT SAME SIZE AS BEFORE
         img.save(thumb_path, "JPEG")
     except Exception as e:
         print(f"Thumbnail resize error: {e}")
 
-    buttons = InlineKeyboardMarkup([
-        [
+    buttons = InlineKeyboardMarkup([[
             InlineKeyboardButton("↖️ Top Left", callback_data="wm_topleft"),
             InlineKeyboardButton("↗️ Top Right", callback_data="wm_topright")
         ],
@@ -136,48 +135,63 @@ async def wm_callback(client, callback_query):
     await callback_query.message.edit(f"✅ {txt}")
 
 # =========================
-# /HSUB - SAVE VIDEO
+# /HSUB - SAVE VIDEO (FIXED LOGIC)
 # =========================
 @app.on_message(filters.command("hsub") & filters.private)
 async def handle_hsub(client, message):
-    if not message.reply_to_message or not message.reply_to_message.video:
+    if not message.reply_to_message:
         return await message.reply("❌ Reply to a Video with **/hsub**")
 
-    user_id = message.from_user.id
-    video = message.reply_to_message.video
+    # FIX: Check if it's sent as a Video or as a Document (MKV format usually sent as document)
+    video = message.reply_to_message.video or message.reply_to_message.document
+    if not video:
+        return await message.reply("❌ Reply to a valid Video (.mp4, .mkv) with **/hsub**")
 
-    file_name = video.file_name or "video.mp4"
-    ext = file_name.split(".")[-1] if "." in file_name else "mp4"
+    file_name = getattr(video, "file_name", "video.mp4")
+    ext = file_name.split(".")[-1].lower() if "." in file_name else "mp4"
+
+    # Block pure documents like .ass or .zip being saved as video
+    if ext not in ["mp4", "mkv", "avi", "webm"]:
+        return await message.reply(f"❌ This file is .{ext}. Please reply to a Video (.mp4 / .mkv) with **/hsub**")
+
+    user_id = message.from_user.id
     file_path = f"downloads/{user_id}.{ext}"
 
     msg = await message.reply("⏳ Downloading Video...")
     await message.reply_to_message.download(file_name=file_path)
 
-    await msg.edit("✅ Video Saved!\nNow send .ass file and reply with **/encode**")
+    await msg.edit("✅ Video Saved!\nNow send **.ass** file and reply to it with **/encode**")
 
 # =========================
-# /ENCODE - PROCESS VIDEO + SUB + WATERMARK
+# /ENCODE - PROCESS VIDEO + SUB + WATERMARK (FIXED LOGIC)
 # =========================
 @app.on_message(filters.command("encode") & filters.private)
 async def handle_encode(client, message):
-    if not message.reply_to_message or not message.reply_to_message.document:
+    if not message.reply_to_message:
         return await message.reply("❌ Reply to a **.ass** file with **/encode**")
 
     doc = message.reply_to_message.document
-    if not doc.file_name or not doc.file_name.lower().endswith(".ass"):
-        return await message.reply("❌ Only .ass files supported!")
+    video_check = message.reply_to_message.video
+
+    # If user accidentally replies to the Video with /encode instead of the subtitle
+    if video_check or (doc and getattr(doc, "file_name", "").lower().endswith((".mp4", ".mkv"))):
+        return await message.reply("❌ You replied to a **Video**! Please reply to the **.ass (Subtitle)** file with **/encode**.")
+
+    # Validate the .ass file properly
+    if not doc or not getattr(doc, "file_name", None) or not doc.file_name.lower().endswith(".ass"):
+        return await message.reply("❌ Only .ass files supported! Make sure you reply to the .ass subtitle document.")
 
     user_id = message.from_user.id
 
     video_file = None
-    for ext in ["mp4", "mkv"]:
+    for ext in ["mp4", "mkv", "avi", "webm"]:
         path = f"downloads/{user_id}.{ext}"
         if os.path.exists(path):
             video_file = path
             break
 
     if not video_file:
-        return await message.reply("❌ No video found! Use /hsub first.")
+        return await message.reply("❌ No video found! Please use **/hsub** on a video first.")
 
     sub_file = f"downloads/{user_id}.ass"
     logo_file = f"downloads/{user_id}_logo.png"
@@ -205,10 +219,14 @@ async def handle_encode(client, message):
         timer_task = asyncio.create_task(update_timer())
 
         try:
-            escaped_sub = sub_file.replace("\\", "/").replace(":", "\\:")
+            # EXTRA FIX: FFmpeg needs Absolute Path for Subtitles to work properly on Render/Linux
+            abs_sub = os.path.abspath(sub_file)
+            escaped_sub = abs_sub.replace("\\", "/").replace(":", "\\:")
+            
             wm_pos = user_settings.get(user_id, {}).get("wm_pos", "topright")
 
             if wm_pos in ["topleft", "topright"] and os.path.exists(logo_file):
+                # WATERMARK SCALE IS EXACTLY SAME
                 overlay_coords = "15:15" if wm_pos == "topleft" else "main_w-overlay_w-15:15"
                 cmd = (
                     f'ffmpeg -y -i "{video_file}" -i "{logo_file}" '
@@ -232,7 +250,7 @@ async def handle_encode(client, message):
             timer_task.cancel()
 
             if not os.path.exists(output_file):
-                return await msg.edit("❌ Encoding Failed! Check logs.")
+                return await msg.edit("❌ Encoding Failed! Please make sure FFmpeg is properly installed.")
 
             await msg.edit("📤 Uploading Processed Video...")
 
