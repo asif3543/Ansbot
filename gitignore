@@ -2,6 +2,7 @@ __pycache__/
 .env
 *.mp4
 *.mkv
+*.avi
 *.ass
 downloads/
 thumbnails/
