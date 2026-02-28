@@ -2,3 +2,4 @@ pyrogram
 tgcrypto
 Pillow
 Flask
+nest-asyncio
