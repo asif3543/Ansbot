@@ -1,5 +1,7 @@
 __pycache__/
 .env
-firebase.json
-*.mp4 / .mkv
+*.mp4
+*.mkv
 *.ass
+downloads/
+thumbnails/
