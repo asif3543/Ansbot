@@ -3,6 +3,8 @@ import time
 import asyncio
 import threading
 from pyrogram import Client, filters
+import sys
+print(f"Running on Python {sys.version}")
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from PIL import Image
 from flask import Flask
