@@ -2,15 +2,44 @@ import os
 import time
 import asyncio
 import threading
-from pyrogram import Client, filters
 import sys
-print(f"Running on Python {sys.version}")
+import traceback
+
+# Debug prints at the very top to catch issues early
+print("DEBUG: bot.py started")
+print("DEBUG: Python version:", sys.version)
+print("DEBUG: Current directory:", os.getcwd())
+print("DEBUG: Files in dir:", os.listdir("."))
+
+# Read env vars with safety
+try:
+    API_ID_raw = os.getenv("API_ID")
+    API_HASH = os.getenv("API_HASH") or ""
+    BOT_TOKEN = os.getenv("BOT_TOKEN") or ""
+
+    print("DEBUG: API_ID from env:", API_ID_raw)
+    print("DEBUG: API_HASH (partial):", API_HASH[:5] + "..." if API_HASH else "MISSING")
+    print("DEBUG: BOT_TOKEN (partial):", BOT_TOKEN[:10] + "..." if BOT_TOKEN else "MISSING")
+
+    if not API_ID_raw:
+        raise ValueError("API_ID is missing in environment variables!")
+    API_ID = int(API_ID_raw)
+
+    if not API_HASH or not BOT_TOKEN:
+        raise ValueError("API_HASH or BOT_TOKEN missing!")
+except Exception as e:
+    print("CRITICAL ERROR in config/env vars:")
+    traceback.print_exc()
+    sys.exit(1)
+
+print("DEBUG: Credentials read OK")
+
+from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from PIL import Image
 from flask import Flask
-from config import API_ID, API_HASH, BOT_TOKEN
 
-# IMPORTANT: Yeh fix karega event loop error ko
+# Fix for event loop in threads (Render + Flask + asyncio)
 import nest_asyncio
 nest_asyncio.apply()
 
@@ -253,4 +282,4 @@ if __name__ == "__main__":
     threading.Thread(target=run_server, daemon=True).start()
 
     print("🚀 Starting Pyrogram Bot...")
-    app.run()  # Ye internally event loop handle karega + nest-asyncio fix karega error
+    app.run()  # This handles the asyncio loop internally
