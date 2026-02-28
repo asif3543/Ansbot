@@ -7,22 +7,24 @@ import traceback
 
 print("🚀 Bot Starting...")
 
-# =========================
-# ENV SAFE LOAD
-# =========================
-API_ID_raw = os.getenv("API_ID")
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# =============================
+# ENV CONFIG SAFE READ
+# =============================
+try:
+    API_ID = int(os.getenv("API_ID"))
+    API_HASH = os.getenv("API_HASH")
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-if not API_ID_raw or not API_HASH or not BOT_TOKEN:
-    print("❌ Missing Environment Variables")
-    sys.exit(1)
+    if not API_HASH or not BOT_TOKEN:
+        raise Exception("Missing credentials")
 
-API_ID = int(API_ID_raw)
+except Exception:
+    traceback.print_exc()
+    exit(1)
 
-# =========================
+# =============================
 # IMPORTS
-# =========================
+# =============================
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from PIL import Image
@@ -31,9 +33,9 @@ import nest_asyncio
 
 nest_asyncio.apply()
 
-# =========================
+# =============================
 # BOT INIT
-# =========================
+# =============================
 app = Client(
     "animebot",
     api_id=API_ID,
@@ -41,23 +43,20 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# =========================
+# =============================
 # FOLDERS
-# =========================
+# =============================
 os.makedirs("downloads", exist_ok=True)
 os.makedirs("thumbnails", exist_ok=True)
 
-# Queue + Semaphore
-process_semaphore = asyncio.Semaphore(1)
-
-# User settings cache
+process_semaphore = asyncio.Semaphore(2)
 user_settings = {}
 
-# =========================
+# =============================
 # START
-# =========================
+# =============================
 @app.on_message(filters.command("start") & filters.private)
-async def start(client, message):
+async def start(_, message):
     await message.reply(
         "🔥 Anime HardSub Bot Ready!\n\n"
         "Send Video → Reply /hsub\n"
@@ -65,74 +64,71 @@ async def start(client, message):
         "Send Photo → Set Thumbnail + Watermark"
     )
 
-# =========================
+# =============================
 # PHOTO
-# =========================
+# =============================
 @app.on_message(filters.photo & filters.private)
-async def save_photo(client, message):
-    user_id = message.from_user.id
+async def save_photo(_, message):
 
-    msg = await message.reply("⏳ Saving Image...")
+    user_id = message.from_user.id
 
     logo_path = f"downloads/{user_id}_logo.png"
     thumb_path = f"thumbnails/{user_id}.jpg"
 
-    await message.download(file_name=logo_path)
+    msg = await message.reply("⏳ Saving Image...")
+
+    await message.download(logo_path)
 
     try:
         img = Image.open(logo_path)
-        if img.mode != "RGB":
-            img = img.convert("RGB")
-
-        img.thumbnail((320,320))
-        img.save(thumb_path,"JPEG")
-
+        img.thumbnail((320, 320))
+        img.save(thumb_path, "JPEG")
     except:
         pass
 
     buttons = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("↖️ Top Left", callback_data="wm_topleft"),
-            InlineKeyboardButton("↗️ Top Right", callback_data="wm_topright")
+            InlineKeyboardButton("↖️ Left", callback_data="wm_topleft"),
+            InlineKeyboardButton("↗️ Right", callback_data="wm_topright")
         ],
         [InlineKeyboardButton("❌ No Watermark", callback_data="wm_none")]
     ])
 
-    await msg.edit("✅ Image Saved!\nSelect Watermark Position", reply_markup=buttons)
+    await msg.edit("✅ Image Saved", reply_markup=buttons)
 
-# =========================
-# CALLBACK
-# =========================
-@app.on_callback_query(filters.regex("^wm_"))
-async def wm_callback(client, callback):
-    user_id = callback.from_user.id
-    choice = callback.data
+# =============================
+# WATERMARK CALLBACK
+# =============================
+@app.on_callback_query(filters.regex("wm_"))
+async def wm_callback(_, query):
 
-    if user_id not in user_settings:
-        user_settings[user_id] = {}
+    uid = query.from_user.id
 
-    if choice == "wm_topleft":
-        user_settings[user_id]["wm_pos"] = "topleft"
+    if uid not in user_settings:
+        user_settings[uid] = {}
+
+    if query.data == "wm_topleft":
+        user_settings[uid]["wm_pos"] = "topleft"
         txt = "Top Left Selected"
 
-    elif choice == "wm_topright":
-        user_settings[user_id]["wm_pos"] = "topright"
+    elif query.data == "wm_topright":
+        user_settings[uid]["wm_pos"] = "topright"
         txt = "Top Right Selected"
 
     else:
-        user_settings[user_id]["wm_pos"] = "none"
+        user_settings[uid]["wm_pos"] = "none"
         txt = "Watermark Disabled"
 
-    await callback.message.edit("✅ "+txt)
+    await query.message.edit("✅ " + txt)
 
-# =========================
+# =============================
 # HSUB
-# =========================
+# =============================
 @app.on_message(filters.command("hsub") & filters.private)
-async def hsub(client, message):
+async def hsub(_, message):
 
     if not message.reply_to_message:
-        return await message.reply("❌ Reply to Video with /hsub")
+        return await message.reply("❌ Reply to Video")
 
     video = message.reply_to_message.video or message.reply_to_message.document
 
@@ -142,132 +138,94 @@ async def hsub(client, message):
     user_id = message.from_user.id
 
     ext = "mp4"
-    if video.file_name and "." in video.file_name:
-        ext = video.file_name.split(".")[-1]
-
-    file_path = f"downloads/{user_id}.{ext}"
+    path = f"downloads/{user_id}.{ext}"
 
     msg = await message.reply("⏳ Downloading Video...")
-    await message.reply_to_message.download(file_name=file_path)
+    await message.reply_to_message.download(path)
 
-    await msg.edit("✅ Video Saved\nNow send .ass and reply /encode")
+    await msg.edit("✅ Video Saved\nNow send .ass subtitle")
 
-# =========================
+# =============================
 # ENCODE
-# =========================
+# =============================
 @app.on_message(filters.command("encode") & filters.private)
-async def encode(client, message):
+async def encode(_, message):
 
     if not message.reply_to_message or not message.reply_to_message.document:
-        return await message.reply("❌ Reply to .ass file")
+        return await message.reply("❌ Reply .ass file")
 
     doc = message.reply_to_message.document
 
     if not doc.file_name.lower().endswith(".ass"):
-        return await message.reply("❌ Only .ass supported")
+        return await message.reply("❌ Only .ass")
 
     user_id = message.from_user.id
 
-    video_file=None
+    video_file = None
     for ext in ["mp4","mkv","avi","webm"]:
-        path=f"downloads/{user_id}.{ext}"
-        if os.path.exists(path):
-            video_file=path
+        p = f"downloads/{user_id}.{ext}"
+        if os.path.exists(p):
+            video_file = p
             break
 
     if not video_file:
-        return await message.reply("❌ No video found")
+        return await message.reply("❌ Video not found")
 
-    sub_file=f"downloads/{user_id}.ass"
-    logo_file=f"downloads/{user_id}_logo.png"
-    thumb_file=f"thumbnails/{user_id}.jpg"
-    output_file=f"downloads/{user_id}_out.mp4"
+    sub_file = f"downloads/{user_id}.ass"
+    logo_file = f"downloads/{user_id}_logo.png"
+    thumb_file = f"thumbnails/{user_id}.jpg"
+    output_file = f"downloads/{user_id}_out.mp4"
 
-    msg=await message.reply("⏳ Downloading Subtitle...")
-    await message.reply_to_message.download(file_name=sub_file)
+    await message.reply("⏳ Processing...")
 
-    await msg.edit("⏳ Processing...")
+    await message.reply_to_message.download(sub_file)
 
     async with process_semaphore:
 
-        try:
-            abs_sub=os.path.abspath(sub_file)
-            escaped_sub=abs_sub.replace("\\","/").replace(":","\\:")
+        wm_pos = user_settings.get(user_id, {}).get("wm_pos","topright")
 
-            wm_pos=user_settings.get(user_id,{}).get("wm_pos","topright")
+        abs_sub = os.path.abspath(sub_file).replace("\\","/")
 
-            if wm_pos in ["topleft","topright"] and os.path.exists(logo_file):
+        escaped_sub = abs_sub.replace(":", "\\:")
 
-                overlay="15:15" if wm_pos=="topleft" else "main_w-overlay_w-15:15"
+        if wm_pos in ["topleft","topright"] and os.path.exists(logo_file):
 
-                cmd=f'''
-ffmpeg -y -i "{video_file}" -i "{logo_file}"
--filter_complex "[1:v]scale=120:-1[wm];[0:v][wm]overlay={overlay}[bg];[bg]ass='{escaped_sub}'[out]"
--map "[out]" -map 0:a
--c:v libx264 -preset veryfast -c:a copy "{output_file}"
-'''
+            overlay_coords = "15:15" if wm_pos=="topleft" else "main_w-overlay_w-15:15"
 
-            else:
-                cmd=f'''
-ffmpeg -y -i "{video_file}"
--vf "ass='{escaped_sub}'"
--c:v libx264 -preset veryfast
--c:a copy "{output_file}"
-'''
-
-            process=await asyncio.create_subprocess_shell(cmd)
-            await process.communicate()
-
-            if not os.path.exists(output_file):
-                return await msg.edit("❌ Encoding Failed")
-
-            await msg.edit("📤 Uploading...")
-
-            thumb=thumb_file if os.path.exists(thumb_file) else None
-
-            await client.send_video(
-                message.chat.id,
-                video=output_file,
-                thumb=thumb,
-                caption="✅ HardSub Done!",
-                supports_streaming=True
+            cmd = (
+                f'ffmpeg -y -i "{video_file}" -i "{logo_file}" '
+                f'-filter_complex "[1:v]scale=120:-1[wm];'
+                f'[0:v][wm]overlay={overlay_coords}[bg];'
+                f'[bg]ass=\'{escaped_sub}\'[out]" '
+                f'-map "[out]" -map 0:a '
+                f'-c:v libx264 -preset ultrafast -threads 2 -crf 28 '
+                f'-c:a copy "{output_file}"'
             )
 
-            await msg.delete()
+        else:
 
-        except Exception as e:
-            await msg.edit(str(e))
+            cmd = (
+                f'ffmpeg -y -i "{video_file}" '
+                f'-vf "ass=\'{escaped_sub}\'" '
+                f'-c:v libx264 -preset ultrafast -threads 2 -crf 28 '
+                f'-c:a copy "{output_file}"'
+            )
 
-        finally:
-            for f in [video_file,sub_file,output_file]:
-                if f and os.path.exists(f):
-                    try: os.remove(f)
-                    except: pass
+        process = await asyncio.create_subprocess_shell(cmd)
+        await process.communicate()
 
-# =========================
-# CLEANUP BACKGROUND
-# =========================
-async def auto_cleanup():
-    while True:
-        try:
-            for folder in ["downloads","thumbnails"]:
-                if os.path.exists(folder):
-                    for file in os.listdir(folder):
-                        path=os.path.join(folder,file)
-                        if time.time()-os.path.getmtime(path)>300:
-                            os.remove(path)
-        except:
-            pass
+        if os.path.exists(output_file):
 
-        await asyncio.sleep(120)
+            await message.reply("📤 Uploading...")
 
-@app.on_startup
-async def startup(client):
-    asyncio.create_task(auto_cleanup())
+            await message.reply_video(
+                output_file,
+                thumb=thumb_file if os.path.exists(thumb_file) else None,
+                caption="✅ Done"
+            )
 
-# =========================
+# =============================
 # RUN
-# =========================
-if __name__=="__main__":
-    print("🚀 Bot Running...")
+# =============================
+if __name__ == "__main__":
     app.run()
