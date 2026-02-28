@@ -1,6 +1,5 @@
-API_ID = "YOUR_API_ID"
-API_HASH = "YOUR_API_HASH"
-BOT_TOKEN = "8732499343:AAF2Zg6qj1gtPZdWfLygzdX3OVgnW6DHlF4"
-BOT_USERNAME = @Kaamkarkaam_bot
+import os
 
-MONGO_URL = "YOUR_MONGO_URL"
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
