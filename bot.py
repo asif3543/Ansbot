@@ -12,7 +12,7 @@ import nest_asyncio
 
 nest_asyncio.apply()
 
-# ====================== ENV VARS ======================
+# ====================== CONFIG ======================
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
@@ -24,7 +24,6 @@ DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 process_semaphore = asyncio.Semaphore(1) 
-user_settings = {}
 users_data = {}
 
 # ====================== UTILS ======================
@@ -36,7 +35,7 @@ def progress_bar(percent):
 
 def get_duration(file):
     try:
-        cmd = ["./ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", file]
+        cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", file]
         result = subprocess.run(cmd, capture_output=True, text=True)
         return float(json.loads(result.stdout)["format"]["duration"])
     except:
@@ -46,17 +45,17 @@ def get_duration(file):
 
 @app.on_message(filters.command("start") & filters.private)
 async def start(_, message):
-    await message.reply("🔥 **HardSub Bot PRO (Original Quality)**\n\n1. Video bhejo → /hsub\n2. .ass file bhejo → /encode")
+    await message.reply("🔥 **HardSub Bot PRO (Fixed V2)**\n\n1. Video bhejo → /hsub\n2. .ass file bhejo → /encode")
 
 @app.on_message(filters.command("hsub") & filters.private)
 async def handle_hsub(_, message):
     if not message.reply_to_message:
         return await message.reply("❌ Video par reply karke /hsub likho.")
     
-    user_id = message.from_user.id
     video = message.reply_to_message.video or message.reply_to_message.document
-    if not video: return await message.reply("❌ Video nahi hai.")
+    if not video: return await message.reply("❌ Video nahi mili.")
 
+    user_id = message.from_user.id
     ext = (video.file_name or "video.mp4").split(".")[-1].lower()
     path = os.path.join(DOWNLOAD_DIR, f"{user_id}_input.{ext}")
     
@@ -75,38 +74,37 @@ async def handle_encode(client, message):
     if not message.reply_to_message or not message.reply_to_message.document:
         return await message.reply("❌ .ass file par reply karein.")
 
-    original_ext = users_data[user_id]["ext"]
+    input_data = users_data[user_id]
+    original_ext = input_data["ext"]
+    video_file = input_data["video"]
     sub_file = os.path.join(DOWNLOAD_DIR, f"{user_id}.ass")
-    video_file = users_data[user_id]["video"]
     output = os.path.join(DOWNLOAD_DIR, f"{user_id}_final.{original_ext}")
     
     await message.reply_to_message.download(file_name=sub_file)
-    msg = await message.reply("⚙️ Encoding Start (Original Quality)...")
+    msg = await message.reply("⚙️ Encoding Start... (Fixed Black Screen Mode)")
 
     async with process_semaphore:
         duration = get_duration(video_file)
-        # Subtitle path escaping for Linux
+        # Escape path for Linux FFmpeg
         clean_sub_path = sub_file.replace("\\", "/").replace(":", "\\:")
         
-        # FFmpeg Command: Black screen fix + Original Quality + Font Path
+        # FFmpeg Command: Subtitles + Black Screen Fix + High Compatibility
         cmd = [
-            "./ffmpeg", "-y", "-i", video_file,
+            "ffmpeg", "-y", "-i", video_file,
             "-vf", f"ass='{clean_sub_path}'",
             "-c:v", "libx264", 
-            "-pix_fmt", "yuv420p", # Black screen fix
-            "-preset", "ultrafast", 
-            "-crf", "23",          # Visual quality maintenance
-            "-c:a", "copy",        # Original Audio
-            "-map", "0:a?", "-threads", "1", 
+            "-pix_fmt", "yuv420p",    # CRITICAL: Fixes Black Screen
+            "-preset", "ultrafast",   # RAM saving for Render
+            "-crf", "23",             # Quality Balance
+            "-c:a", "aac",            # Fixes Audio compatibility
+            "-strict", "experimental",
+            "-map", "0:v:0",          # First video stream
+            "-map", "0:a:0",          # First audio stream
             output
         ]
 
-        # Font set-up to avoid "Font missing" error
-        env = os.environ.copy()
-        env["FONTCONFIG_FILE"] = os.path.join(BASE_DIR, ".fonts")
-
         process = await asyncio.create_subprocess_exec(
-            *cmd, stderr=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, env=env
+            *cmd, stderr=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
         )
         
         last_update = time.time()
@@ -131,6 +129,7 @@ async def handle_encode(client, message):
         
         if os.path.exists(output) and os.path.getsize(output) > 10000:
             await msg.edit("📤 Uploading...")
+            # Upload as document to keep original format/quality
             await client.send_document(
                 message.chat.id, 
                 document=output, 
@@ -138,7 +137,7 @@ async def handle_encode(client, message):
             )
             await msg.delete()
         else:
-            await msg.edit("❌ Encoding Failed! Render RAM limit reached or invalid subtitle.")
+            await msg.edit("❌ Encoding Failed! Check if your .ass file has errors.")
 
         # Cleanup
         for f in [video_file, sub_file, output]:
@@ -148,7 +147,7 @@ async def handle_encode(client, message):
 # ====================== WEB SERVER ======================
 web_app = Flask(__name__)
 @web_app.route("/")
-def home(): return "Bot Running"
+def home(): return "Bot is Alive"
 
 def run_server():
     port = int(os.environ.get("PORT", 10000))
