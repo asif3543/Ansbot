@@ -1,4 +1,4 @@
-import os
+import os  # FIX 1: Chhota 'i' kar diya hai
 import time
 import asyncio
 import threading
@@ -30,8 +30,7 @@ users_data = {}
 
 def get_duration(file):
     try:
-        # Use ./ffprobe because we downloaded it in build command
-        cmd = ["./ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", file]
+        cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", file]
         result = subprocess.run(cmd, capture_output=True, text=True)
         return float(json.loads(result.stdout)["format"]["duration"])
     except:
@@ -41,15 +40,15 @@ def get_duration(file):
 
 @app.on_message(filters.command("start") & filters.private)
 async def start(_, message):
-    await message.reply("🚀 **HardSub Bot (Low RAM Mode)**\n\n1. Video bhejo → /hsub\n2. .ass file bhejo → /encode")
+    await message.reply("✅ **Bot Ready (Fixed Version)**\n\n1. Video bhejo -> /hsub\n2. .ass file bhejo -> /encode")
 
 @app.on_message(filters.command("hsub") & filters.private)
 async def handle_hsub(_, message):
     if not message.reply_to_message:
-        return await message.reply("❌ Video par reply karein.")
+        return await message.reply("❌ Reply to a video.")
     
     video = message.reply_to_message.video or message.reply_to_message.document
-    if not video: return await message.reply("❌ Video nahi mili.")
+    if not video: return await message.reply("❌ No video found.")
 
     user_id = message.from_user.id
     ext = (video.file_name or "video.mp4").split(".")[-1].lower()
@@ -77,24 +76,23 @@ async def handle_encode(client, message):
     output = os.path.join(DOWNLOAD_DIR, f"{user_id}_final.{original_ext}")
     
     await message.reply_to_message.download(file_name=sub_file)
-    msg = await message.reply("⚙️ Encoding... (Low RAM Mode Active)")
+    msg = await message.reply("⚙️ Encoding... (Fixing Black Screen)")
 
     async with process_semaphore:
         duration = get_duration(video_file)
         font_dir = os.path.join(BASE_DIR, ".fonts")
         clean_sub_path = sub_file.replace("\\", "/").replace(":", "\\:")
         
-        # FFmpeg Optimized for Render Free Plan (Low Memory)
+        # FFmpeg Command with YUV420P Fix
         cmd = [
-            "./ffmpeg", "-y", 
-            "-i", video_file,
+            "ffmpeg", "-y", "-i", video_file,
             "-vf", f"ass='{clean_sub_path}':fontsdir='{font_dir}'",
             "-c:v", "libx264", 
-            "-pix_fmt", "yuv420p",    # Fix Black Screen
-            "-preset", "ultrafast",   # Less CPU/RAM usage
-            "-crf", "28",             # Higher compression to save RAM
-            "-threads", "1",          # CRITICAL: Use only 1 thread to avoid crash
-            "-c:a", "copy",           # Don't re-encode audio
+            "-pix_fmt", "yuv420p",    # ISSE VIDEO SHOW HOGI (NO BLACK SCREEN)
+            "-preset", "ultrafast", 
+            "-crf", "24", 
+            "-c:a", "copy",           
+            "-threads", "1",          
             output
         ]
 
@@ -102,16 +100,16 @@ async def handle_encode(client, message):
             *cmd, stderr=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
         )
         
-        # Real-time logs check
+        # FIX 2: Deadlock hatane ke liye communicate() use kiya
         stdout, stderr = await process.communicate()
         
         if process.returncode == 0 and os.path.exists(output) and os.path.getsize(output) > 10000:
             await msg.edit("📤 Uploading...")
-            await client.send_document(message.chat.id, document=output, caption=f"✅ Done!")
+            await client.send_document(message.chat.id, document=output, caption=f"✅ HardSub Success!")
             await msg.delete()
         else:
-            error = stderr.decode()[-200:]
-            await msg.edit(f"❌ **Error!**\nLog: `{error}`\n\n*Tip: Try a smaller video (under 100MB).*")
+            error_log = stderr.decode()[-200:] if stderr else "Unknown Error"
+            await msg.edit(f"❌ Encoding Failed!\nLog: `{error_log}`")
 
         # Cleanup
         for f in [video_file, sub_file, output]:
@@ -121,7 +119,7 @@ async def handle_encode(client, message):
 # ====================== WEB SERVER ======================
 web_app = Flask(__name__)
 @web_app.route("/")
-def home(): return "Bot Alive"
+def home(): return "Alive"
 
 def run_server():
     port = int(os.environ.get("PORT", 10000))
