@@ -1,20 +1,16 @@
 FROM python:3.11-slim
 
-# Work directory
 WORKDIR /app
 
-# System dependencies
+# Install ffmpeg + ffprobe + basic tools
 RUN apt-get update && apt-get install -y \
-    wget \
-    tar \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project files
+# Copy files
 COPY . .
 
-# Python dependencies
+# Install Python deps
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Run bot
 CMD ["python", "bot.py"]
