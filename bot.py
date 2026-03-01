@@ -51,7 +51,7 @@ def get_duration(file):
 
 @app.on_message(filters.command("start") & filters.private)
 async def start(_, message):
-    await message.reply("🔥 **HardSub Bot PRO (Fixed)**\n\n1. Video bhejo → /hsub\n2. .ass file bhejo → /encode")
+    await message.reply("🔥 **HardSub Bot (Original Format Fix)**\n\n1. Video bhejo → /hsub\n2. .ass file bhejo → /encode")
 
 @app.on_message(filters.photo & filters.private)
 async def save_photo(_, message):
@@ -81,11 +81,16 @@ async def handle_hsub(_, message):
     video = message.reply_to_message.video or message.reply_to_message.document
     if not video: return await message.reply("❌ Video nahi hai.")
 
-    path = os.path.join(DOWNLOAD_DIR, f"{user_id}_input.mp4")
+    # Get original extension (mp4, mkv, etc.)
+    original_ext = (video.file_name or "video.mp4").split(".")[-1].lower()
+
+    path = os.path.join(DOWNLOAD_DIR, f"{user_id}_input.{original_ext}")
     msg = await message.reply("⏳ Downloading Video...")
     await message.reply_to_message.download(file_name=path)
-    users_data[user_id] = {"video": path}
-    await msg.edit("✅ Video Saved! Ab .ass file par /encode reply karein.")
+    
+    # Save path and extension
+    users_data[user_id] = {"video": path, "ext": original_ext}
+    await msg.edit(f"✅ Video Saved! (Format: {original_ext.upper()})\nAb .ass file par /encode reply karein.")
 
 # ====================== CORE ENCODER ======================
 
@@ -98,39 +103,45 @@ async def handle_encode(client, message):
     if not message.reply_to_message or not message.reply_to_message.document:
         return await message.reply("❌ .ass file par reply karein.")
 
+    original_ext = users_data[user_id].get("ext", "mp4")
+    
     # Paths Setup
     sub_file = os.path.join(DOWNLOAD_DIR, f"{user_id}.ass")
     video_file = users_data[user_id]["video"]
     logo_file = os.path.join(DOWNLOAD_DIR, f"{user_id}_logo.png")
-    output = os.path.join(DOWNLOAD_DIR, f"{user_id}_final.mp4")
+    output = os.path.join(DOWNLOAD_DIR, f"{user_id}_final.{original_ext}") # Keeps original format
     
     await message.reply_to_message.download(file_name=sub_file)
-    msg = await message.reply("⚙️ Encoding Start (Please Wait)...")
+    msg = await message.reply("⚙️ Encoding Start (Original Quality)...")
 
     async with process_semaphore:
         duration = get_duration(video_file)
         wm_pos = user_settings.get(user_id, {}).get("wm_pos", "none")
         
-        # FIX: Path escaping for Linux FFmpeg
-        # We use 'subtitles' filter as it's more robust than 'ass' on many FFmpeg builds
         clean_sub_path = sub_file.replace("\\", "/").replace(":", "\\:")
 
+        # Filter Logic
         if wm_pos != "none" and os.path.exists(logo_file):
             pos = "15:15" if wm_pos == "topleft" else "main_w-overlay_w-15:15"
-            # Using 'subtitles' filter with explicit font fallback
-            vf = f"[1:v]scale=120:-1[wm];[0:v][wm]overlay={pos}[bg];[bg]subtitles='{clean_sub_path}'"
+            vf = f"[1:v]scale=120:-1[wm];[0:v][wm]overlay={pos}[bg];[bg]ass='{clean_sub_path}'"
         else:
-            vf = f"subtitles='{clean_sub_path}'"
+            vf = f"ass='{clean_sub_path}'"
 
+        # FFmpeg Command with Black Screen Fix (-pix_fmt yuv420p)
         cmd = [
             "ffmpeg", "-y", "-i", video_file,
-            "-i", logo_file if os.path.exists(logo_file) else video_file, # Dummy if no logo
+            "-i", logo_file if os.path.exists(logo_file) else video_file,
             "-filter_complex" if "overlay" in vf else "-vf", vf,
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", 
-            "-c:a", "copy", "-map", "0:a?", "-threads", "1", output
+            "-c:v", "libx264", 
+            "-pix_fmt", "yuv420p", # FIX FOR BLACK SCREEN IN TELEGRAM
+            "-preset", "fast",     # Better quality retention
+            "-crf", "23",          # Visual lossless
+            "-c:a", "copy",        # Keep original audio
+            "-map", "0:a?", 
+            "-threads", "1", 
+            output
         ]
 
-        # Use subprocess with better error capturing
         process = await asyncio.create_subprocess_exec(
             *cmd, stderr=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
         )
@@ -157,13 +168,12 @@ async def handle_encode(client, message):
         
         if os.path.exists(output) and os.path.getsize(output) > 5000:
             await msg.edit("📤 Uploading...")
-            await client.send_video(message.chat.id, video=output, caption="✅ HardSub Success!")
+            await client.send_document(message.chat.id, document=output, caption=f"✅ HardSub Success! (Format: {original_ext.upper()})")
             await msg.delete()
         else:
-            # Capture exact error from FFmpeg
             _, stderr = await process.communicate()
-            error_log = stderr.decode()[-200:] # Last 200 chars
-            await msg.edit(f"❌ **Encoding Failed!**\n\nReason: FFmpeg crash or font missing.\n`Log: {error_log}`")
+            error_log = stderr.decode()[-200:]
+            await msg.edit(f"❌ **Encoding Failed!**\n\nReason: Font missing or filter error.\n`Log: {error_log}`")
 
         # Cleanup
         for f in [video_file, sub_file, output]:
