@@ -190,7 +190,9 @@ async def handle_encode(client, message):
                 "ffmpeg", "-y",
                 "-i", video_file,
                 "-i", logo_file,
-                "-filter_complex", f"[1:v]scale=120:-1[wm];[0:v][wm]overlay={overlay}[bg];[bg]subtitles='{sub_file}'[out]",
+                "-filter_complex", f"[1:v]scale=120:-1[wm];[0:v][wm]overlay={overlay} print("DEBUG: Working dir:", os.getcwd())
+print("DEBUG: sub_file exists?", os.path.exists(sub_file))
+print("DEBUG: video_file exists?", os.path.exists(video_file))
                 "-map", "[out]", "-map", "0:a?",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy",
                 output_file
@@ -199,7 +201,8 @@ async def handle_encode(client, message):
             cmd = [
                 "ffmpeg", "-y",
                 "-i", video_file,
-                "-vf", f"subtitles='{sub_file}'",
+                sub_file_safe = os.path.basename(sub_file)  # sirf filename (Docker cwd /app hai)
+                "-vf", f"subtitles='{sub_file_safe}'",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy",
                 output_file
             ]
