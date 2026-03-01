@@ -55,11 +55,11 @@ os.makedirs("thumbnails", exist_ok=True)
 
 process_semaphore = asyncio.Semaphore(2)
 user_settings = {}
-users_data = {} # To keep track of user files safely
-active_process = {} # To cancel encoding if needed
+users_data = {}  # To keep track of user files safely
+active_process = {}  # To cancel encoding if needed
 
 # =========================
-# UTILITIES (From Reference Code)
+# UTILITIES
 # =========================
 def progress_bar(percent):
     filled = int(percent / 5)
@@ -68,8 +68,7 @@ def progress_bar(percent):
 def get_duration(file):
     try:
         result = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", file],
-            capture_output=True, text=True
-        )
+                                capture_output=True, text=True)
         data = json.loads(result.stdout)
         return float(data["format"]["duration"])
     except:
@@ -110,9 +109,9 @@ async def save_photo(client, message):
         print(f"Thumbnail resize error: {e}")
 
     buttons = InlineKeyboardMarkup([[
-            InlineKeyboardButton("↖️ Top Left", callback_data="wm_topleft"),
-            InlineKeyboardButton("↗️ Top Right", callback_data="wm_topright")
-        ],[InlineKeyboardButton("❌ No Watermark", callback_data="wm_none")]
+        InlineKeyboardButton("↖️ Top Left", callback_data="wm_topleft"),
+        InlineKeyboardButton("↗️ Top Right", callback_data="wm_topright")
+    ], [InlineKeyboardButton("❌ No Watermark", callback_data="wm_none")]
     ])
 
     await msg.edit("✅ **Image Saved!**\nWhere do you want Watermark?", reply_markup=buttons)
@@ -152,7 +151,7 @@ async def handle_hsub(client, message):
     file_name = getattr(video, "file_name", "video.mp4")
     ext = file_name.split(".")[-1].lower() if "." in file_name else "mp4"
 
-    if ext not in["mp4", "mkv", "avi", "webm"]:
+    if ext not in ["mp4", "mkv", "avi", "webm"]:
         return await message.reply("❌ Please reply to a Video (.mp4 / .mkv)")
 
     user_id = message.from_user.id
@@ -160,8 +159,7 @@ async def handle_hsub(client, message):
 
     msg = await message.reply("⏳ Downloading Video...")
     await message.reply_to_message.download(file_name=file_path)
-    
-    # Store in memory
+
     if user_id not in users_data:
         users_data[user_id] = {}
     users_data[user_id]["video"] = file_path
@@ -169,7 +167,7 @@ async def handle_hsub(client, message):
     await msg.edit("✅ Video Saved!\nNow send **.ass** file and reply to it with **/encode**")
 
 # =========================
-# /ENCODE - REAL PROGRESS BAR + FFMPEG
+# /ENCODE - FIXED VERSION (anti-hang, better escaping)
 # =========================
 @app.on_message(filters.command("encode") & filters.private)
 async def handle_encode(client, message):
@@ -199,65 +197,66 @@ async def handle_encode(client, message):
     async with process_semaphore:
         duration = get_duration(video_file)
         if duration == 0.0:
-            duration = 100 # Fallback if duration fetch fails
+            duration = 100  # fallback
 
         wm_pos = user_settings.get(user_id, {}).get("wm_pos", "none")
-        
-        # Absolute path for ASS file to prevent FFmpeg errors
-        abs_sub = os.path.abspath(sub_file)
-        escaped_sub = abs_sub.replace("\\", "/").replace(":", "\\:")
-        
-        # Build strict FFmpeg Command as List
+
+        # Safe: use relative filename only (ffmpeg cwd = downloads/)
+        escaped_sub = f"{user_id}.ass"  # No full path → no : or \ issues on Linux/Render
+
+        # Common base flags
+        base_flags = ["-y", "-fflags", "+genpts", "-i", video_file]
+
         if wm_pos in ["topleft", "topright"] and os.path.exists(logo_file):
             overlay_coords = "15:15" if wm_pos == "topleft" else "main_w-overlay_w-15:15"
-            cmd =[
-                "ffmpeg", "-y", "-i", video_file, "-i", logo_file,
+            cmd = base_flags + [
+                "-i", logo_file,
                 "-filter_complex", f"[1:v]scale=120:-1[wm];[0:v][wm]overlay={overlay_coords}[bg];[bg]ass='{escaped_sub}'[out]",
-                "-map", "[out]", "-map", "0:a",
-                "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "copy", output_file
+                "-map", "[out]", "-map", "0:a?",
+                "-c:v", "libx264", "-preset", "veryfast", "-c:a", "copy", output_file
             ]
         else:
-            cmd =[
-                "ffmpeg", "-y", "-i", video_file,
+            cmd = base_flags + [
                 "-vf", f"ass='{escaped_sub}'",
-                "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "copy", output_file
+                "-c:v", "libx264", "-preset", "veryfast", "-c:a", "copy", output_file
             ]
+
+        print("DEBUG: FFmpeg command:", " ".join(cmd))  # Log to Render console
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,  # Prevents deadlock
             stderr=asyncio.subprocess.PIPE
         )
-        
+
         active_process[user_id] = process
 
         last_percent = -1
         speed = "0x"
         last_update_time = time.time()
 
-        # Reading FFmpeg Output for Real Progress
+        # Read progress
         while True:
             line = await process.stderr.readline()
             if not line:
                 break
-            line = line.decode(errors="ignore")
+            line = line.decode(errors="ignore").strip()
 
             if "time=" in line:
                 try:
-                    time_part = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
-                    if time_part:
-                        h, m, s = time_part.group(1).split(":")
-                        current_time = int(h)*3600 + int(m)*60 + float(s)
-                        percent = int((current_time / duration) * 100)
+                    time_match = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
+                    if time_match:
+                        h, m, s = time_match.group(1).split(":")
+                        current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                        percent = int((current_time / duration) * 100) if duration > 0 else 0
                         percent = min(percent, 100)
 
-                        current_sys_time = time.time()
-                        # Update every 3 seconds to avoid FloodWait Error from Telegram
-                        if percent != last_percent and (current_sys_time - last_update_time) > 3.0:
+                        now = time.time()
+                        if percent != last_percent and (now - last_update_time) > 3:
                             bar = progress_bar(percent)
-                            speed_match = re.search(r"speed=\s*([\d\.x]+)", line)
+                            speed_match = re.search(r"speed=\s*([\d\.]+)x?", line)
                             if speed_match:
-                                speed = speed_match.group(1)
+                                speed = speed_match.group(1) + "x"
 
                             await msg.edit(
                                 f"🎬 **Encoding Video...**\n\n"
@@ -265,7 +264,7 @@ async def handle_encode(client, message):
                                 f"⚡ Speed: {speed}\n"
                             )
                             last_percent = percent
-                            last_update_time = current_sys_time
+                            last_update_time = now
                 except:
                     pass
 
@@ -274,24 +273,32 @@ async def handle_encode(client, message):
         if user_id in active_process:
             del active_process[user_id]
 
+        # Safety timeout
+        try:
+            await asyncio.wait_for(process.wait(), timeout=20)
+        except asyncio.TimeoutError:
+            process.terminate()
+            await process.wait()
+            await msg.edit("❌ Encoding timeout (process killed). Try smaller video.")
+            return
+
         if return_code != 0 or not os.path.exists(output_file):
-            await msg.edit("❌ Encoding Failed! FFmpeg Error.")
+            await msg.edit("❌ Encoding Failed! Check Render logs for FFmpeg error.")
             return
 
         await msg.edit("📤 Preparing to Upload...")
         thumb_path = thumb_file if os.path.exists(thumb_file) else None
 
-        # UPLOAD PROGRESS FUNCTION
         last_upload_time = time.time()
         async def upload_progress(current, total):
             nonlocal last_upload_time
             percent = int((current / total) * 100)
-            current_sys_time = time.time()
-            if (current_sys_time - last_upload_time) > 3.0:
+            now = time.time()
+            if (now - last_upload_time) > 3:
                 bar = progress_bar(percent)
                 try:
                     await msg.edit(f"📤 **Uploading...**\n\n{bar} {percent}%")
-                    last_upload_time = current_sys_time
+                    last_upload_time = now
                 except:
                     pass
 
@@ -303,10 +310,10 @@ async def handle_encode(client, message):
             supports_streaming=True,
             progress=upload_progress
         )
-        
+
         await msg.delete()
 
-        # Cleanup Memory & Files
+        # Cleanup
         for file in [video_file, sub_file, output_file]:
             if os.path.exists(file):
                 try:
