@@ -12,25 +12,21 @@ import subprocess
 print("DEBUG: bot.py started")
 print("DEBUG: Python version:", sys.version)
 
-# Read env vars with safety
+# Read env vars
 try:
-    API_ID_raw = os.getenv("API_ID")
+    API_ID = int(os.getenv("API_ID"))
     API_HASH = os.getenv("API_HASH") or ""
     BOT_TOKEN = os.getenv("BOT_TOKEN") or ""
 
-    if not API_ID_raw:
-        raise ValueError("API_ID is missing in environment variables!")
-    API_ID = int(API_ID_raw)
-
-    if not API_HASH or not BOT_TOKEN:
-        raise ValueError("API_HASH or BOT_TOKEN missing!")
+    if not API_ID or not API_HASH or not BOT_TOKEN:
+        raise ValueError("Missing API_ID / API_HASH / BOT_TOKEN in environment variables!")
 except Exception as e:
-    print("CRITICAL ERROR in config/env vars:")
+    print("CRITICAL ERROR in env vars:")
     traceback.print_exc()
     sys.exit(1)
 
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from PIL import Image
 from flask import Flask
 
@@ -40,12 +36,7 @@ nest_asyncio.apply()
 # =========================
 # BOT INITIALIZATION
 # =========================
-app = Client(
-    "animebot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
+app = Client("animebot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # =========================
 # FOLDERS & VARIABLES
@@ -55,8 +46,8 @@ os.makedirs("thumbnails", exist_ok=True)
 
 process_semaphore = asyncio.Semaphore(2)
 user_settings = {}
-users_data = {}  # To keep track of user files safely
-active_process = {}  # To cancel encoding if needed
+users_data = {}
+active_process = {}
 
 # =========================
 # UTILITIES
@@ -81,14 +72,14 @@ def get_duration(file):
 async def start(client, message):
     await message.reply(
         "🔥 **Anime HardSub & Watermark Bot Ready!**\n\n"
-        "**Steps to use:**\n"
-        "1️⃣ Forward/Send Video (.mp4 / .mkv) and reply with **/hsub**\n"
-        "2️⃣ Forward/Send Subtitle (.ass) and reply with **/encode**\n\n"
-        "📸 **Watermark & Thumbnail:** Just send any Photo to the bot!"
+        "**Steps:**\n"
+        "1. Video bhejo → reply with **/hsub**\n"
+        "2. .ass file bhejo → reply with **/encode**\n\n"
+        "📸 Photo bhejo for Watermark + Thumbnail"
     )
 
 # =========================
-# PHOTO -> WATERMARK + THUMB
+# PHOTO → WATERMARK + THUMB
 # =========================
 @app.on_message(filters.photo & filters.private)
 async def save_photo(client, message):
@@ -105,16 +96,16 @@ async def save_photo(client, message):
             img = img.convert("RGB")
         img.thumbnail((320, 320))
         img.save(thumb_path, "JPEG")
-    except Exception as e:
-        print(f"Thumbnail resize error: {e}")
+    except:
+        pass
 
-    buttons = InlineKeyboardMarkup([[
-        InlineKeyboardButton("↖️ Top Left", callback_data="wm_topleft"),
-        InlineKeyboardButton("↗️ Top Right", callback_data="wm_topright")
-    ], [InlineKeyboardButton("❌ No Watermark", callback_data="wm_none")]
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("↖️ Top Left", callback_data="wm_topleft"),
+         InlineKeyboardButton("↗️ Top Right", callback_data="wm_topright")],
+        [InlineKeyboardButton("❌ No Watermark", callback_data="wm_none")]
     ])
 
-    await msg.edit("✅ **Image Saved!**\nWhere do you want Watermark?", reply_markup=buttons)
+    await msg.edit("✅ **Image Saved!**\nWatermark kaha chahiye?", reply_markup=buttons)
 
 @app.on_callback_query(filters.regex("^wm_"))
 async def wm_callback(client, callback_query):
@@ -132,7 +123,7 @@ async def wm_callback(client, callback_query):
         txt = "Top Right Selected ↗️"
     else:
         user_settings[user_id]["wm_pos"] = "none"
-        txt = "Watermark Disabled (Only Thumbnail)"
+        txt = "Watermark Disabled"
 
     await callback_query.message.edit(f"✅ {txt}")
 
@@ -142,19 +133,14 @@ async def wm_callback(client, callback_query):
 @app.on_message(filters.command("hsub") & filters.private)
 async def handle_hsub(client, message):
     if not message.reply_to_message:
-        return await message.reply("❌ Reply to a Video with **/hsub**")
+        return await message.reply("❌ Video pe reply karke **/hsub** likho")
 
     video = message.reply_to_message.video or message.reply_to_message.document
     if not video:
-        return await message.reply("❌ Reply to a valid Video.")
-
-    file_name = getattr(video, "file_name", "video.mp4")
-    ext = file_name.split(".")[-1].lower() if "." in file_name else "mp4"
-
-    if ext not in ["mp4", "mkv", "avi", "webm"]:
-        return await message.reply("❌ Please reply to a Video (.mp4 / .mkv)")
+        return await message.reply("❌ Valid video bhejo (.mp4 / .mkv)")
 
     user_id = message.from_user.id
+    ext = video.file_name.split(".")[-1].lower() if video.file_name else "mp4"
     file_path = f"downloads/{user_id}.{ext}"
 
     msg = await message.reply("⏳ Downloading Video...")
@@ -164,24 +150,20 @@ async def handle_hsub(client, message):
         users_data[user_id] = {}
     users_data[user_id]["video"] = file_path
 
-    await msg.edit("✅ Video Saved!\nNow send **.ass** file and reply to it with **/encode**")
+    await msg.edit("✅ Video Saved!\nAb .ass file bhejo aur **/encode** reply karo")
 
 # =========================
-# /ENCODE - FIXED VERSION (anti-hang, better escaping)
+# /ENCODE - FIXED & RELIABLE (Dost ke tarike se)
 # =========================
 @app.on_message(filters.command("encode") & filters.private)
 async def handle_encode(client, message):
     user_id = message.from_user.id
 
-    if not message.reply_to_message:
-        return await message.reply("❌ Reply to a **.ass** file with **/encode**")
-
-    doc = message.reply_to_message.document
-    if not doc or not doc.file_name.lower().endswith(".ass"):
-        return await message.reply("❌ Only .ass files supported!")
+    if not message.reply_to_message or not message.reply_to_message.document or not message.reply_to_message.document.file_name.lower().endswith((".ass", ".srt", ".ssa", ".vtt")):
+        return await message.reply("❌ .ass file pe reply karke **/encode** likho")
 
     if user_id not in users_data or "video" not in users_data[user_id]:
-        return await message.reply("❌ No video found! Please use **/hsub** on a video first.")
+        return await message.reply("❌ Pehle video bhejo aur /hsub use karo")
 
     video_file = users_data[user_id]["video"]
     sub_file = f"downloads/{user_id}.ass"
@@ -197,35 +179,36 @@ async def handle_encode(client, message):
     async with process_semaphore:
         duration = get_duration(video_file)
         if duration == 0.0:
-            duration = 100  # fallback
+            duration = 100
 
         wm_pos = user_settings.get(user_id, {}).get("wm_pos", "none")
 
-        # Safe: use relative filename only (ffmpeg cwd = downloads/)
-        escaped_sub = f"{user_id}.ass"  # No full path → no : or \ issues on Linux/Render
-
-        # Common base flags
-        base_flags = ["-y", "-fflags", "+genpts", "-i", video_file]
-
+        # Simple & Reliable FFmpeg Command
         if wm_pos in ["topleft", "topright"] and os.path.exists(logo_file):
-            overlay_coords = "15:15" if wm_pos == "topleft" else "main_w-overlay_w-15:15"
-            cmd = base_flags + [
+            overlay = "15:15" if wm_pos == "topleft" else "main_w-overlay_w-15:15"
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", video_file,
                 "-i", logo_file,
-                "-filter_complex", f"[1:v]scale=120:-1[wm];[0:v][wm]overlay={overlay_coords}[bg];[bg]ass='{escaped_sub}'[out]",
+                "-filter_complex", f"[1:v]scale=120:-1[wm];[0:v][wm]overlay={overlay}[bg];[bg]subtitles='{sub_file}'[out]",
                 "-map", "[out]", "-map", "0:a?",
-                "-c:v", "libx264", "-preset", "veryfast", "-c:a", "copy", output_file
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy",
+                output_file
             ]
         else:
-            cmd = base_flags + [
-                "-vf", f"ass='{escaped_sub}'",
-                "-c:v", "libx264", "-preset", "veryfast", "-c:a", "copy", output_file
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", video_file,
+                "-vf", f"subtitles='{sub_file}'",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy",
+                output_file
             ]
 
-        print("DEBUG: FFmpeg command:", " ".join(cmd))  # Log to Render console
+        print("DEBUG: FFmpeg Command →", " ".join(cmd))
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.DEVNULL,  # Prevents deadlock
+            stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE
         )
 
@@ -233,9 +216,8 @@ async def handle_encode(client, message):
 
         last_percent = -1
         speed = "0x"
-        last_update_time = time.time()
+        last_update = time.time()
 
-        # Read progress
         while True:
             line = await process.stderr.readline()
             if not line:
@@ -244,61 +226,51 @@ async def handle_encode(client, message):
 
             if "time=" in line:
                 try:
-                    time_match = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
-                    if time_match:
-                        h, m, s = time_match.group(1).split(":")
-                        current_time = int(h) * 3600 + int(m) * 60 + float(s)
-                        percent = int((current_time / duration) * 100) if duration > 0 else 0
-                        percent = min(percent, 100)
+                    tm = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
+                    if tm:
+                        h, m, s = tm.group(1).split(":")
+                        curr = int(h)*3600 + int(m)*60 + float(s)
+                        percent = min(int((curr / duration) * 100), 100)
 
                         now = time.time()
-                        if percent != last_percent and (now - last_update_time) > 3:
+                        if percent != last_percent and now - last_update > 3:
                             bar = progress_bar(percent)
-                            speed_match = re.search(r"speed=\s*([\d\.]+)x?", line)
-                            if speed_match:
-                                speed = speed_match.group(1) + "x"
+                            sp = re.search(r"speed=\s*([\d\.]+)x?", line)
+                            if sp:
+                                speed = sp.group(1) + "x"
 
                             await msg.edit(
                                 f"🎬 **Encoding Video...**\n\n"
                                 f"{bar} {percent}%\n\n"
-                                f"⚡ Speed: {speed}\n"
+                                f"⚡ Speed: {speed}"
                             )
                             last_percent = percent
-                            last_update_time = now
+                            last_update = now
                 except:
                     pass
 
         return_code = await process.wait()
-
         if user_id in active_process:
             del active_process[user_id]
 
-        # Safety timeout
-        try:
-            await asyncio.wait_for(process.wait(), timeout=20)
-        except asyncio.TimeoutError:
-            process.terminate()
-            await process.wait()
-            await msg.edit("❌ Encoding timeout (process killed). Try smaller video.")
-            return
-
         if return_code != 0 or not os.path.exists(output_file):
-            await msg.edit("❌ Encoding Failed! Check Render logs for FFmpeg error.")
+            await msg.edit("❌ Encoding Failed! (Logs check karo)")
             return
 
-        await msg.edit("📤 Preparing to Upload...")
+        await msg.edit("📤 Uploading...")
+
         thumb_path = thumb_file if os.path.exists(thumb_file) else None
 
-        last_upload_time = time.time()
+        last_up = time.time()
         async def upload_progress(current, total):
-            nonlocal last_upload_time
+            nonlocal last_up
             percent = int((current / total) * 100)
             now = time.time()
-            if (now - last_upload_time) > 3:
+            if now - last_up > 3:
                 bar = progress_bar(percent)
                 try:
                     await msg.edit(f"📤 **Uploading...**\n\n{bar} {percent}%")
-                    last_upload_time = now
+                    last_up = now
                 except:
                     pass
 
@@ -306,7 +278,7 @@ async def handle_encode(client, message):
             message.chat.id,
             video=output_file,
             thumb=thumb_path,
-            caption="✅ **HardSub & Watermark Done!**",
+            caption="✅ **HardSub + Watermark Done!**",
             supports_streaming=True,
             progress=upload_progress
         )
@@ -314,32 +286,32 @@ async def handle_encode(client, message):
         await msg.delete()
 
         # Cleanup
-        for file in [video_file, sub_file, output_file]:
-            if os.path.exists(file):
+        for f in [video_file, sub_file, output_file]:
+            if os.path.exists(f):
                 try:
-                    os.remove(file)
+                    os.remove(f)
                 except:
                     pass
         users_data.pop(user_id, None)
 
 # =========================
-# DUMMY FLASK SERVER FOR RENDER
+# DUMMY FLASK FOR RENDER
 # =========================
 web_app = Flask(__name__)
 
 @web_app.route("/")
 def home():
-    return "🚀 Anime HardSub Bot is Running!"
+    return "🚀 Bot is Running!"
 
 def run_server():
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 # =========================
 # MAIN RUN
 # =========================
 if __name__ == "__main__":
-    print("🌐 Starting Dummy Web Server for Render...")
+    print("🌐 Starting Dummy Server for Render...")
     threading.Thread(target=run_server, daemon=True).start()
 
     print("🚀 Starting Pyrogram Bot...")
