@@ -35,7 +35,7 @@ def progress_bar(percent):
 
 def get_duration(file):
     try:
-        cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", file]
+        cmd = ["./ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", file]
         result = subprocess.run(cmd, capture_output=True, text=True)
         return float(json.loads(result.stdout)["format"]["duration"])
     except:
@@ -45,7 +45,7 @@ def get_duration(file):
 
 @app.on_message(filters.command("start") & filters.private)
 async def start(_, message):
-    await message.reply("🔥 **HardSub Bot PRO (Fixed V2)**\n\n1. Video bhejo → /hsub\n2. .ass file bhejo → /encode")
+    await message.reply("🔥 **HardSub Bot PRO (Free Plan Fix)**\n\n1. Video bhejo → /hsub\n2. .ass file bhejo → /encode")
 
 @app.on_message(filters.command("hsub") & filters.private)
 async def handle_hsub(_, message):
@@ -63,7 +63,7 @@ async def handle_hsub(_, message):
     await message.reply_to_message.download(file_name=path)
     
     users_data[user_id] = {"video": path, "ext": ext}
-    await msg.edit(f"✅ Video Saved! (Format: {ext.upper()})\nAb .ass file par /encode reply karein.")
+    await msg.edit(f"✅ Video Saved! ({ext.upper()})\nAb .ass file par /encode reply karein.")
 
 @app.on_message(filters.command("encode") & filters.private)
 async def handle_encode(client, message):
@@ -85,21 +85,23 @@ async def handle_encode(client, message):
 
     async with process_semaphore:
         duration = get_duration(video_file)
-        # Escape path for Linux FFmpeg
+        
+        # Font Path setup for Free Plan
+        font_dir = os.path.join(BASE_DIR, ".fonts")
         clean_sub_path = sub_file.replace("\\", "/").replace(":", "\\:")
         
-        # FFmpeg Command: Subtitles + Black Screen Fix + High Compatibility
+        # FFmpeg Command: Subtitles + Black Screen Fix + Font Path
+        # Note: fontsdir specifies where FFmpeg should look for Arial.ttf
         cmd = [
-            "ffmpeg", "-y", "-i", video_file,
-            "-vf", f"ass='{clean_sub_path}'",
+            "./ffmpeg", "-y", "-i", video_file,
+            "-vf", f"ass='{clean_sub_path}':fontsdir='{font_dir}'",
             "-c:v", "libx264", 
-            "-pix_fmt", "yuv420p",    # CRITICAL: Fixes Black Screen
-            "-preset", "ultrafast",   # RAM saving for Render
-            "-crf", "23",             # Quality Balance
-            "-c:a", "aac",            # Fixes Audio compatibility
-            "-strict", "experimental",
-            "-map", "0:v:0",          # First video stream
-            "-map", "0:a:0",          # First audio stream
+            "-pix_fmt", "yuv420p",    # Black screen fix
+            "-preset", "ultrafast", 
+            "-crf", "24",             # Quality Balance
+            "-c:a", "copy",           # Fast audio copy
+            "-map", "0:v:0", 
+            "-map", "0:a:0", 
             output
         ]
 
@@ -129,15 +131,10 @@ async def handle_encode(client, message):
         
         if os.path.exists(output) and os.path.getsize(output) > 10000:
             await msg.edit("📤 Uploading...")
-            # Upload as document to keep original format/quality
-            await client.send_document(
-                message.chat.id, 
-                document=output, 
-                caption=f"✅ HardSub Success!\nFormat: {original_ext.upper()}"
-            )
+            await client.send_document(message.chat.id, document=output, caption=f"✅ Done! ({original_ext.upper()})")
             await msg.delete()
         else:
-            await msg.edit("❌ Encoding Failed! Check if your .ass file has errors.")
+            await msg.edit("❌ Encoding Failed! Render RAM is very low for this video.")
 
         # Cleanup
         for f in [video_file, sub_file, output]:
